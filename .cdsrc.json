@@ -1,0 +1,16 @@
+{
+  "requires": {
+    "db": {
+      "kind": "hana",
+      "credentials": {
+        "host": "2a6c5de0-3b95-4111-8546-f97b6bed906e.hna1.prod-us10.hanacloud.ondemand.com",
+        "port": 443,
+        "user": "DBADMIN",
+        "password": "Aditya@285",
+        "schema": "DBADMIN",
+        "encrypt": true,
+        "validateCertificate": false
+      }
+    }
+  }
+}

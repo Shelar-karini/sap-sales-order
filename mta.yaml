@@ -1,0 +1,21 @@
+_schema-version: "3.1"
+ID: sales-order-app
+version: 1.0.0
+
+modules:
+  - name: sales-order-app-srv
+    type: nodejs
+    path: .
+    requires:
+      - name: sales-order-hana
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+
+resources:
+  - name: sales-order-hana
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
