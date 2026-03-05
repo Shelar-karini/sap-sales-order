@@ -1,62 +1,114 @@
 namespace dbadmin;
 
 @cds.persistence.exists
-@cds.persistence.name: 'PURCHASEORDERDETAILS'
-entity PURCHASEORDERDETAILS {
-  key ID : Integer;
-  HEADER_ID : Integer;
-  SUBCATNUM : String(50);
-  U_SWK_LINENUM : String(50);
-  SWAGELOK_ITEMCODE : String(100);
-  QUANTITY : String(50);
-  U_SWK_NEEDSHIPDATE : String(50);
-  TAXCODE : String(50);
-  U_SWK_BTPRICE : String(50);
-  U_ZEDS_COMMENTS : LargeString;
-  UNITOFMEASURE : String(50);
+@cds.persistence.name: 'VBAK'
+entity VBAK {
+  key VBELN : String(10);
+  AUART : String(4);
+  KUNNR : String(10);
+  BP_CUST_NAME : String(100);
+  BSTNK : String(35);
+  WORK_ORDER : String(35);
+  QUOTE_NUMBER : String(35);
+  VKORG : String(4);
+  VTWEG : String(2);
+  SPART : String(2);
+  VDATU : Date;
+  AUDAT : Date;
+  SHIP_VIA : String(50);
+  SHIPPING_INSTR : String(500);
+  ZTERM : String(20);
+  PYMNT_GROUP : String(50);
+  GROUP_CODE : String(20);
+  VENDOR_INFO : String(500);
+  NETWR : Decimal(15, 2);
+  WAERK : String(5);
+  GBSTK : String(1);
+  WARNINGS : String(2000);
+  TICKET_NOTES : String(1000);
+  ERDAT : Date;
+  ERNAM : String(50);
+  CREATED_AT : Timestamp;
+  UPDATED_AT : Timestamp;
 }
 
 @cds.persistence.exists
-@cds.persistence.name: 'PURCHASEORDERHEADER'
-entity PURCHASEORDERHEADER {
-  key ID : Integer;
-  BP_CUSTNUM_CARDCODE : String(50);
-  BP_CUSTNAME_CARDNAME : String(255);
-  PO_NUM_NUMATCARD : String(50);
-  WORK_ORDER : String(50);
-  ADDRESS2 : String(255);
-  ADDRESS2_STREET : String(255);
-  ADDRESS2_CITY : String(100);
-  ADDRESS2_STATE : String(50);
-  ADDRESS2_ZIPCODE : String(20);
-  SHIPTOCODE : String(50);
-  CNTCTCODE : String(50);
-  CONTACTNAME : String(255);
-  CONTACTEMAIL : String(255);
-  CONTACTPHONENUMBER : String(50);
-  ATTN_NAME : String(255);
-  GOODS_RECIPIENT : String(255);
-  UNLOADING_POINT : String(255);
-  ADDRESS : String(255);
-  ADDRESS_STREET : String(255);
-  ADDRESS_CITY : String(100);
-  ADDRESS_STATE : String(50);
-  ADDRESS_ZIPCODE : String(20);
-  PAYTOCODE : String(50);
-  U_SWK_BPTARGETNEEDDATE : String(50);
-  QUOTENUMBER : String(50);
-  SHIPVIA : String(100);
-  VENDORINFORMATION : String(500);
-  SHIPPINGINSTRUCTIONS : String(500);
-  SITE_ADDRESS : String(255);
-  SITE_STREET : String(255);
-  SITE_CITY : String(100);
-  SITE_STATE : String(50);
-  SITE_ZIPCODE : String(20);
-  IDP_PAYMENTTERMS : String(100);
-  PYMNTGROUP : String(50);
-  GROUPCODE : String(50);
-  WARNINGS : LargeString;
-  TICKET_NOTES : LargeString;
-  TOTAL_PRICE : String(50);
+@cds.persistence.name: 'VBAP'
+entity VBAP {
+  key VBELN : String(10);
+  key POSNR : String(6);
+  MATNR : String(18);
+  SUB_CAT_NUM : String(18);
+  ARKTX : String(100);
+  TAX_CODE : String(10);
+  KWMENG : Decimal(15, 3);
+  MEINS : String(3);
+  NETPR : Decimal(15, 5);
+  NETWR : Decimal(34, 2);
+  EDATU : Date;
+  CREATED_AT : Timestamp;
 }
+
+@cds.persistence.exists
+@cds.persistence.name: 'VBKD'
+entity VBKD {
+  key VBELN : String(10);
+  key POSNR : String(6);
+  ZTERM : String(20);
+  PYMNT_GROUP : String(50);
+  BSARK : String(35);
+  IHREZ : String(12);
+  BNAME : String(35);
+  TELF1 : String(16);
+  CREATED_AT : Timestamp;
+}
+
+@cds.persistence.exists
+@cds.persistence.name: 'VBPA'
+entity VBPA {
+  key VBELN : String(10);
+  key POSNR : String(6);
+  key PARVW : String(2);
+  KUNNR : String(10);
+  CONTACT_CODE : String(20);
+  CONTACT_NAME : String(100);
+  CONTACT_EMAIL : String(241);
+  CONTACT_PHONE : String(30);
+  ATTN_NAME : String(100);
+  GOODS_RECIPIENT : String(100);
+  UNLOADING_POINT : String(100);
+  SHIPTO_FULL : String(250);
+  SHIPTO_STREET : String(100);
+  SHIPTO_CITY : String(50);
+  SHIPTO_STATE : String(50);
+  SHIPTO_ZIP : String(10);
+  SHIPTO_CODE : String(20);
+  BILLTO_FULL : String(250);
+  BILLTO_STREET : String(100);
+  BILLTO_CITY : String(50);
+  BILLTO_STATE : String(50);
+  BILLTO_ZIP : String(10);
+  PAYTO_CODE : String(20);
+  SITE_ADDRESS : String(250);
+  SITE_STREET : String(100);
+  SITE_CITY : String(50);
+  SITE_STATE : String(50);
+  SITE_ZIP : String(10);
+  CREATED_AT : Timestamp;
+}
+
+@cds.persistence.exists
+@cds.persistence.name: 'VBUK'
+entity VBUK {
+  key VBELN : String(10);
+  GBSTK : String(1);
+  ABSTK : String(1);
+  LIFSK : String(2);
+  FAKSK : String(2);
+  CMGST : String(1);
+  WARNINGS : String(2000);
+  HAS_BLOCKING_WARN : String(1);
+  CREATED_AT : Timestamp;
+  UPDATED_AT : Timestamp;
+}
+

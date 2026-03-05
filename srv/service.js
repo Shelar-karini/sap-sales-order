@@ -1,193 +1,211 @@
 const cds = require('@sap/cds');
+const hana = require('@sap/hana-client');
+require('dotenv').config();
 
-module.exports = cds.service.impl(async function () {
-  const db = await cds.connect.to('db');
+// ─── PERSISTENT HANA CONNECTION ─────────────────────────────
+let conn = null;
+const SCHEMA = process.env.HANA_SCHEMA || 'DBADMIN';
 
-  // ─── HELPER: Extract WHERE clause from CDS query ────────────
-  const extractWhereClause = (req, columnMap) => {
-    let whereClause = '';
-    const params = [];
+const getConnection = () => {
+  if (conn) {
+    try {
+      // Test if connection is still alive
+      conn.exec('SELECT 1 FROM DUMMY');
+      return conn;
+    } catch (e) {
+      console.warn('⚠️  Connection lost, reconnecting...');
+      conn = null;
+    }
+  }
 
-    if (req.query.SELECT && req.query.SELECT.where) {
-      const where = req.query.SELECT.where;
+  conn = hana.createConnection();
+  conn.connect({
+    serverNode: `${process.env.HANA_HOST}:${process.env.HANA_PORT || 443}`,
+    uid: process.env.HANA_USER,
+    pwd: process.env.HANA_PASSWORD,
+    encrypt: 'true',
+    sslValidateCertificate: 'false',
+    connectTimeout: 30000,
+    communicationTimeout: 30000
+  });
 
-      for (let i = 0; i < where.length; i++) {
-        const clause = where[i];
+  console.log('✅ HANA connection established');
+  return conn;
+};
 
-        if (clause.ref && clause.ref[0]) {
-          const odataColumn = clause.ref[0].toLowerCase();
-          const dbColumn = columnMap[odataColumn] || clause.ref[0];
+// ─── LOAD SCHEMA FROM HANA ───────────────────────────────────
+const loadSchemaFromHana = () => {
+  const c = getConnection();
 
-          const operator = where[i + 1];
-          const value = where[i + 2];
+  const tables = c.exec(`
+    SELECT TABLE_NAME 
+    FROM SYS.TABLES 
+    WHERE SCHEMA_NAME = '${SCHEMA}'
+    AND TABLE_NAME NOT LIKE '#%'
+    ORDER BY TABLE_NAME
+  `);
 
-          if (operator === '=' && value && value.val !== undefined) {
-            whereClause = ` WHERE "${dbColumn}" = ?`;
-            params.push(value.val);
-            break;
-          }
+  console.log(`📋 Found ${tables.length} tables:`, tables.map(t => t.TABLE_NAME).join(', '));
+
+  const tableSchemas = {};
+
+  for (const { TABLE_NAME } of tables) {
+    const columns = c.exec(`
+      SELECT COLUMN_NAME, DATA_TYPE_NAME
+      FROM SYS.TABLE_COLUMNS
+      WHERE SCHEMA_NAME = '${SCHEMA}'
+      AND TABLE_NAME = '${TABLE_NAME}'
+      ORDER BY POSITION
+    `);
+
+    let pkColumn = columns[0]?.COLUMN_NAME;
+    try {
+      const pkeys = c.exec(`
+        SELECT TC.COLUMN_NAME
+        FROM SYS.TABLE_COLUMNS TC
+        INNER JOIN SYS.INDEX_COLUMNS IC
+          ON TC.SCHEMA_NAME = IC.SCHEMA_NAME
+          AND TC.TABLE_NAME = IC.TABLE_NAME
+          AND TC.COLUMN_NAME = IC.COLUMN_NAME
+        INNER JOIN SYS.INDEXES I
+          ON IC.SCHEMA_NAME = I.SCHEMA_NAME
+          AND IC.TABLE_NAME = I.TABLE_NAME
+          AND IC.INDEX_NAME = I.INDEX_NAME
+        WHERE TC.SCHEMA_NAME = '${SCHEMA}'
+        AND TC.TABLE_NAME = '${TABLE_NAME}'
+        AND I.CONSTRAINT = 'PRIMARY KEY'
+      `);
+      if (pkeys.length > 0) pkColumn = pkeys[0].COLUMN_NAME;
+    } catch (e) {
+      console.warn(`⚠️  No PK for ${TABLE_NAME}, using first column: ${pkColumn}`);
+    }
+
+    const columnMap = {};
+    for (const col of columns) {
+      columnMap[col.COLUMN_NAME.toLowerCase()] = col.COLUMN_NAME;
+    }
+
+    tableSchemas[TABLE_NAME] = { columnMap, pkColumn };
+  }
+
+  return tableSchemas;
+};
+
+// ─── HELPERS ─────────────────────────────────────────────────
+const extractWhereClause = (req, columnMap) => {
+  let whereClause = '';
+  const params = [];
+
+  if (req.query?.SELECT?.where) {
+    const where = req.query.SELECT.where;
+    for (let i = 0; i < where.length; i++) {
+      const clause = where[i];
+      if (clause.ref && clause.ref[0]) {
+        const dbColumn = columnMap[clause.ref[0].toLowerCase()] || clause.ref[0];
+        const operator = where[i + 1];
+        const value = where[i + 2];
+        if (operator === '=' && value?.val !== undefined) {
+          whereClause = ` WHERE "${dbColumn}" = ?`;
+          params.push(value.val);
+          break;
         }
       }
     }
+  }
 
-    return { whereClause, params };
-  };
+  return { whereClause, params };
+};
 
-  // ─── HELPER: Build SET clause for UPDATE ────────────────────
-  const buildSetClause = (data, columnMap) => {
-    const setClauses = [];
-    const params = [];
+const buildSetClause = (data, columnMap) => {
+  const setClauses = [];
+  const params = [];
+  for (const [field, value] of Object.entries(data)) {
+    const dbColumn = columnMap[field.toLowerCase()] || field;
+    setClauses.push(`"${dbColumn}" = ?`);
+    params.push(value);
+  }
+  return { setClause: setClauses.join(', '), params };
+};
 
-    for (const [odataField, value] of Object.entries(data)) {
-      const dbColumn = columnMap[odataField.toLowerCase()] || odataField;
-      setClauses.push(`"${dbColumn}" = ?`);
-      params.push(value);
+const runSQL = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const c = getConnection();
+      c.exec(sql, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      });
+    } catch (e) {
+      reject(e);
     }
-
-    return { setClause: setClauses.join(', '), params };
-  };
-
-  // ============================================================
-  // PURCHASEORDERHEADER
-  // ============================================================
-  const headerColumnMap = {
-    'id'                     : 'ID',
-    'bp_custnum_cardcode'    : 'BP_CUSTNUM_CARDCODE',
-    'bp_custname_cardname'   : 'BP_CUSTNAME_CARDNAME',
-    'po_num_numatcard'       : 'PO_NUM_NUMATCARD',
-    'work_order'             : 'WORK_ORDER',
-    'address2'               : 'ADDRESS2',
-    'address2_street'        : 'ADDRESS2_STREET',
-    'address2_city'          : 'ADDRESS2_CITY',
-    'address2_state'         : 'ADDRESS2_STATE',
-    'address2_zipcode'       : 'ADDRESS2_ZIPCODE',
-    'shiptocode'             : 'SHIPTOCODE',
-    'cntctcode'              : 'CNTCTCODE',
-    'contactname'            : 'CONTACTNAME',
-    'contactemail'           : 'CONTACTEMAIL',
-    'contactphonenumber'     : 'CONTACTPHONENUMBER',
-    'attn_name'              : 'ATTN_NAME',
-    'goods_recipient'        : 'GOODS_RECIPIENT',
-    'unloading_point'        : 'UNLOADING_POINT',
-    'address'                : 'ADDRESS',
-    'address_street'         : 'ADDRESS_STREET',
-    'address_city'           : 'ADDRESS_CITY',
-    'address_state'          : 'ADDRESS_STATE',
-    'address_zipcode'        : 'ADDRESS_ZIPCODE',
-    'paytocode'              : 'PAYTOCODE',
-    'u_swk_bptargetneeddate' : 'U_SWK_BPTARGETNEEDDATE',
-    'quotenumber'            : 'QUOTENUMBER',
-    'shipvia'                : 'SHIPVIA',
-    'vendorinformation'      : 'VENDORINFORMATION',
-    'shippinginstructions'   : 'SHIPPINGINSTRUCTIONS',
-    'site_address'           : 'SITE_ADDRESS',
-    'site_street'            : 'SITE_STREET',
-    'site_city'              : 'SITE_CITY',
-    'site_state'             : 'SITE_STATE',
-    'site_zipcode'           : 'SITE_ZIPCODE',
-    'idp_paymentterms'       : 'IDP_PAYMENTTERMS',
-    'pymntgroup'             : 'PYMNTGROUP',
-    'groupcode'              : 'GROUPCODE',
-    'warnings'               : 'WARNINGS',
-    'ticket_notes'           : 'TICKET_NOTES',
-    'total_price'            : 'TOTAL_PRICE'
-  };
-
-  // READ
-  this.on('READ', 'PURCHASEORDERHEADER', async (req) => {
-    const { whereClause, params } = extractWhereClause(req, headerColumnMap);
-    const sql = `SELECT * FROM "DBADMIN"."PURCHASEORDERHEADER"${whereClause}`;
-    console.log('PURCHASEORDERHEADER READ:', sql, params);
-    return db.run(sql, params);
   });
+};
 
-  // CREATE
-  this.on('CREATE', 'PURCHASEORDERHEADER', async (req) => {
-    const data = req.data;
-    const columns = Object.keys(data).map(k => `"${headerColumnMap[k.toLowerCase()] || k}"`).join(', ');
-    const placeholders = Object.keys(data).map(() => '?').join(', ');
-    const values = Object.values(data);
-    const sql = `INSERT INTO "DBADMIN"."PURCHASEORDERHEADER" (${columns}) VALUES (${placeholders})`;
-    console.log('PURCHASEORDERHEADER CREATE:', sql, values);
-    await db.run(sql, values);
-    return data;
-  });
+// ─── MAIN SERVICE ────────────────────────────────────────────
+module.exports = cds.service.impl(async function () {
 
-  // UPDATE
-  this.on('UPDATE', 'PURCHASEORDERHEADER', async (req) => {
-    const data = { ...req.data };
-    const id = data.ID || req.params?.[0]?.ID;
-    delete data.ID;
-    const { setClause, params } = buildSetClause(data, headerColumnMap);
-    const sql = `UPDATE "DBADMIN"."PURCHASEORDERHEADER" SET ${setClause} WHERE "ID" = ?`;
-    console.log('PURCHASEORDERHEADER UPDATE:', sql, [...params, id]);
-    await db.run(sql, [...params, id]);
-    return req.data;
-  });
+  // Load all table schemas from HANA at startup
+  const tableSchemas = loadSchemaFromHana();
 
-  // DELETE
-  this.on('DELETE', 'PURCHASEORDERHEADER', async (req) => {
-    const id = req.data?.ID || req.params?.[0]?.ID;
-    const sql = `DELETE FROM "DBADMIN"."PURCHASEORDERHEADER" WHERE "ID" = ?`;
-    console.log('PURCHASEORDERHEADER DELETE:', sql, [id]);
-    await db.run(sql, [id]);
-  });
+  for (const [TABLE_NAME, { columnMap, pkColumn }] of Object.entries(tableSchemas)) {
+    console.log(`🔧 Registering handlers for: ${TABLE_NAME} (PK: ${pkColumn})`);
 
-  // ============================================================
-  // PURCHASEORDERDETAILS
-  // ============================================================
-  const detailsColumnMap = {
-    'id'                 : 'ID',
-    'header_id'          : 'HEADER_ID',
-    'subcatnum'          : 'SUBCATNUM',
-    'u_swk_linenum'      : 'U_SWK_LINENUM',
-    'swagelok_itemcode'  : 'SWAGELOK_ITEMCODE',
-    'quantity'           : 'QUANTITY',
-    'u_swk_needshipdate' : 'U_SWK_NEEDSHIPDATE',
-    'taxcode'            : 'TAXCODE',
-    'u_swk_btprice'      : 'U_SWK_BTPRICE',
-    'u_zeds_comments'    : 'U_ZEDS_COMMENTS',
-    'unitofmeasure'      : 'UNITOFMEASURE'
-  };
+    // ─── READ ──────────────────────────────────────────────
+    this.on('READ', TABLE_NAME, async (req) => {
+      const { whereClause, params } = extractWhereClause(req, columnMap);
 
-  // READ
-  this.on('READ', 'PURCHASEORDERDETAILS', async (req) => {
-    const { whereClause, params } = extractWhereClause(req, detailsColumnMap);
-    const sql = `SELECT * FROM "DBADMIN"."PURCHASEORDERDETAILS"${whereClause}`;
-    console.log('PURCHASEORDERDETAILS READ:', sql, params);
-    return db.run(sql, params);
-  });
+      let keyFilter = '';
+      const keyParams = [];
+      if (req.params?.[0] && !whereClause) {
+        const keyVal = typeof req.params[0] === 'object'
+          ? Object.values(req.params[0])[0]
+          : req.params[0];
+        keyFilter = ` WHERE "${pkColumn}" = ?`;
+        keyParams.push(keyVal);
+      }
 
-  // CREATE
-  this.on('CREATE', 'PURCHASEORDERDETAILS', async (req) => {
-    const data = req.data;
-    const columns = Object.keys(data).map(k => `"${detailsColumnMap[k.toLowerCase()] || k}"`).join(', ');
-    const placeholders = Object.keys(data).map(() => '?').join(', ');
-    const values = Object.values(data);
-    const sql = `INSERT INTO "DBADMIN"."PURCHASEORDERDETAILS" (${columns}) VALUES (${placeholders})`;
-    console.log('PURCHASEORDERDETAILS CREATE:', sql, values);
-    await db.run(sql, values);
-    return data;
-  });
+      const finalWhere = whereClause || keyFilter;
+      const finalParams = params.length ? params : keyParams;
+      const sql = `SELECT * FROM "${SCHEMA}"."${TABLE_NAME}"${finalWhere}`;
 
-  // UPDATE
-  this.on('UPDATE', 'PURCHASEORDERDETAILS', async (req) => {
-    const data = { ...req.data };
-    const id = data.ID || req.params?.[0]?.ID;
-    delete data.ID;
-    const { setClause, params } = buildSetClause(data, detailsColumnMap);
-    const sql = `UPDATE "DBADMIN"."PURCHASEORDERDETAILS" SET ${setClause} WHERE "ID" = ?`;
-    console.log('PURCHASEORDERDETAILS UPDATE:', sql, [...params, id]);
-    await db.run(sql, [...params, id]);
-    return req.data;
-  });
+      console.log(`READ ${TABLE_NAME}:`, sql, finalParams);
+      return runSQL(sql, finalParams);
+    });
 
-  // DELETE
-  this.on('DELETE', 'PURCHASEORDERDETAILS', async (req) => {
-    const id = req.data?.ID || req.params?.[0]?.ID;
-    const sql = `DELETE FROM "DBADMIN"."PURCHASEORDERDETAILS" WHERE "ID" = ?`;
-    console.log('PURCHASEORDERDETAILS DELETE:', sql, [id]);
-    await db.run(sql, [id]);
-  });
+    // ─── CREATE ────────────────────────────────────────────
+    this.on('CREATE', TABLE_NAME, async (req) => {
+      const data = req.data;
+      const columns = Object.keys(data).map(k => `"${columnMap[k.toLowerCase()] || k}"`).join(', ');
+      const placeholders = Object.keys(data).map(() => '?').join(', ');
+      const values = Object.values(data);
+      const sql = `INSERT INTO "${SCHEMA}"."${TABLE_NAME}" (${columns}) VALUES (${placeholders})`;
 
+      console.log(`CREATE ${TABLE_NAME}:`, sql, values);
+      await runSQL(sql, values);
+      return data;
+    });
+
+    // ─── UPDATE ────────────────────────────────────────────
+    this.on('UPDATE', TABLE_NAME, async (req) => {
+      const data = { ...req.data };
+      const id = data[pkColumn] || req.params?.[0]?.[pkColumn] || Object.values(req.params?.[0] || {})[0];
+      delete data[pkColumn];
+
+      const { setClause, params } = buildSetClause(data, columnMap);
+      const sql = `UPDATE "${SCHEMA}"."${TABLE_NAME}" SET ${setClause} WHERE "${pkColumn}" = ?`;
+
+      console.log(`UPDATE ${TABLE_NAME}:`, sql, [...params, id]);
+      await runSQL(sql, [...params, id]);
+      return req.data;
+    });
+
+    // ─── DELETE ────────────────────────────────────────────
+    this.on('DELETE', TABLE_NAME, async (req) => {
+      const id = req.data?.[pkColumn] || req.params?.[0]?.[pkColumn] || Object.values(req.params?.[0] || {})[0];
+      const sql = `DELETE FROM "${SCHEMA}"."${TABLE_NAME}" WHERE "${pkColumn}" = ?`;
+
+      console.log(`DELETE ${TABLE_NAME}:`, sql, [id]);
+      await runSQL(sql, [id]);
+    });
+  }
 });

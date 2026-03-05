@@ -3,11 +3,13 @@ const fs = require('fs');
 const path = require('path');
 
 // ─── HANA CONNECTION CONFIG ──────────────────────────────────
+require('dotenv').config();
+
 const conn = hana.createConnection();
 conn.connect({
-  serverNode: '2a6c5de0-3b95-4111-8546-f97b6bed906e.hna1.prod-us10.hanacloud.ondemand.com:443',
-  uid: 'DBADMIN',
-  pwd: 'Aditya@285',
+  serverNode: `${process.env.HANA_HOST}:${process.env.HANA_PORT || 443}`,
+  uid: process.env.HANA_USER,
+  pwd: process.env.HANA_PASSWORD,
   encrypt: 'true',
   sslValidateCertificate: 'false'
 });

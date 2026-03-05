@@ -3,10 +3,10 @@
     "db": {
       "kind": "hana",
       "credentials": {
-        "host": "2a6c5de0-3b95-4111-8546-f97b6bed906e.hna1.prod-us10.hanacloud.ondemand.com",
+        "host": "f1c153c0-1792-41e5-b997-a949ab98f6f6.hna1.prod-us10.hanacloud.ondemand.com",
         "port": 443,
         "user": "DBADMIN",
-        "password": "Aditya@285",
+        "password": "KariniSAP2026!",
         "schema": "DBADMIN",
         "encrypt": true,
         "validateCertificate": false
