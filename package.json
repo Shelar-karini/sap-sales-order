@@ -1,20 +1,28 @@
 {
-  "requires": {
-    "auth": { "kind": "dummy" },
-    "db": {
-      "kind": "hana",
-      "credentials": {
-        "host": "f1c153c0-1792-41e5-b997-a949ab98f6f6.hna1.prod-us10.hanacloud.ondemand.com",
-        "port": 443,
-        "user": "DBADMIN",
-        "password": "KariniSAP2026!",
-        "schema": "DBADMIN",
-        "encrypt": true,
-        "validateCertificate": false
+  "name": "sales-order-app",
+  "version": "1.0.0",
+  "description": "SAP CAP Dynamic HANA OData Service",
+  "scripts": {
+    "start": "cds run",
+    "dev": "cds watch",
+    "generate": "node scripts/generate-schema.js"
+  },
+  "dependencies": {
+    "@sap/cds": "8.9.8",
+    "@sap/cds-fiori": "^2.0.0",
+    "@sap/hana-client": "2.27.23",
+    "@cap-js/hana": "1.9.2",
+    "dotenv": "16.4.5",
+    "express": "4.18.2"
+  },
+  "devDependencies": {
+    "@sap/cds-dk": "8.9.8"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "kind": "hana"
       }
     }
-  },
-  "features": {
-    "fiori_preview": true
   }
 }

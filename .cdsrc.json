@@ -1,8 +1,6 @@
 {
   "requires": {
-    "auth": {
-      "kind": "dummy"
-    },
+    "auth": { "kind": "dummy" },
     "db": {
       "kind": "hana",
       "credentials": {
@@ -15,5 +13,8 @@
         "validateCertificate": false
       }
     }
+  },
+  "features": {
+    "fiori_preview": true
   }
 }
