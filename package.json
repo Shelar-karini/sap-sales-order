@@ -5,8 +5,7 @@
   "scripts": {
     "start": "cds run",
     "dev": "cds watch",
-    "generate": "node scripts/generate-schema.js",
-    "deploy:hana": "cds deploy --to hana"
+    "generate": "node scripts/generate-schema.js"
   },
   "dependencies": {
     "@sap/cds": "8.9.8",

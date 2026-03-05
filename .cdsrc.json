@@ -1,5 +1,8 @@
 {
   "requires": {
+    "auth": {
+      "kind": "dummy"
+    },
     "db": {
       "kind": "hana",
       "credentials": {
